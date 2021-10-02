@@ -294,6 +294,26 @@ typedef struct SpvReflectTypeDescription {
 } SpvReflectTypeDescription;
 
 
+/*! @struct SpvReflectSpecializationConstant
+
+*/
+typedef struct SpvReflectSpecializationConstant {
+  uint32_t                            spirv_id;
+  const char*                         name;
+  uint32_t                            specid;
+  SpvReflectDecorationFlags           decoration_flags;
+
+  // NOTE: SPIR-V shares type references for variables
+  //       that have the same underlying type. This means
+  //       that the same type name will appear for multiple
+  //       variables.
+  SpvReflectTypeDescription*          type_description;
+
+  struct {
+    uint32_t                          specid;
+  } word_offset;
+} SpvReflectSpecializationConstant;
+
 /*! @struct SpvReflectInterfaceVariable
 
 */
@@ -428,6 +448,8 @@ typedef struct SpvReflectShaderModule {
   const char*                       source_source;
   SpvExecutionModel                 spirv_execution_model;                            // Uses value(s) from first entry point
   SpvReflectShaderStageFlagBits     shader_stage;                                     // Uses value(s) from first entry point
+  uint32_t                          specialization_constant_count;
+  SpvReflectSpecializationConstant* specialization_constants;
   uint32_t                          descriptor_binding_count;                         // Uses value(s) from first entry point
   SpvReflectDescriptorBinding*      descriptor_bindings;                              // Uses value(s) from first entry point
   uint32_t                          descriptor_set_count;                             // Uses value(s) from first entry point
@@ -771,6 +793,33 @@ SpvReflectResult spvReflectEnumerateEntryPointOutputVariables(
   const char*                   entry_point,
   uint32_t*                     p_count,
   SpvReflectInterfaceVariable** pp_variables
+);
+
+
+/*! @fn spvReflectEnumerateSpecializationConstants
+ @brief  Note: If the module contains multiple entry points, this will only get
+         the specialization constants for the first one. (TODO verify statement)
+ @param  p_module   Pointer to an instance of SpvReflectShaderModule.
+ @param  p_count    If pp_consts is NULL, the module's specialization
+                    constant count will be stored here.
+                    If pp_blocks is not NULL, *p_count must
+                    contain the module's specialization constant count.
+ @param  pp_consts  If NULL, the module's specialization constant count
+                    will be written to *p_count.
+                    If non-NULL, pp_consts must point to an
+                    array with *p_count entries, where pointers to
+                    the module's push constant blocks will be written.
+                    The caller must not free the specialization constants written
+                    to this array.
+ @return            If successful, returns SPV_REFLECT_RESULT_SUCCESS.
+                    Otherwise, the error code indicates the cause of the
+                    failure.
+
+*/
+SpvReflectResult spvReflectEnumerateSpecializationConstants(
+  const SpvReflectShaderModule* p_module,
+  uint32_t*                     p_count,
+  SpvReflectSpecializationConstant** pp_consts
 );
 
 

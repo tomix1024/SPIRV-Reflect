@@ -119,6 +119,7 @@ typedef struct SpvReflectPrvDecorations {
   bool                            is_noperspective;
   bool                            is_flat;
   bool                            is_non_writable;
+  SpvReflectPrvNumberDecoration   specid;
   SpvReflectPrvNumberDecoration   set;
   SpvReflectPrvNumberDecoration   binding;
   SpvReflectPrvNumberDecoration   input_attachment_index;
@@ -625,6 +626,7 @@ static SpvReflectResult ParseNodes(SpvReflectPrvParser* p_parser)
   for (uint32_t i = 0; i < node_count; ++i) {
     p_parser->nodes[i].op = (SpvOp)INVALID_VALUE;
     p_parser->nodes[i].storage_class = (SpvStorageClass)INVALID_VALUE;
+    p_parser->nodes[i].decorations.specid.value = (uint32_t)INVALID_VALUE;
     p_parser->nodes[i].decorations.set.value = (uint32_t)INVALID_VALUE;
     p_parser->nodes[i].decorations.binding.value = (uint32_t)INVALID_VALUE;
     p_parser->nodes[i].decorations.location.value = (uint32_t)INVALID_VALUE;
@@ -1335,8 +1337,9 @@ static SpvReflectResult ParseDecorations(SpvReflectPrvParser* p_parser)
       default: {
         skip = true;
       }
-      break;
+      break; 
       case SpvDecorationRelaxedPrecision:
+      case SpvDecorationSpecId:
       case SpvDecorationBlock:
       case SpvDecorationBufferBlock:
       case SpvDecorationColMajor:
@@ -1383,6 +1386,13 @@ static SpvReflectResult ParseDecorations(SpvReflectPrvParser* p_parser)
 
       case SpvDecorationRelaxedPrecision: {
         p_target_decorations->is_relaxed_precision = true;
+      }
+      break;
+
+      case SpvDecorationSpecId: {
+        uint32_t word_offset = p_node->word_offset + member_offset + 3;
+        CHECKED_READU32(p_parser, word_offset, p_target_decorations->specid.value);
+        p_target_decorations->specid.word_offset = word_offset;
       }
       break;
 
@@ -1840,6 +1850,66 @@ static int SortCompareDescriptorBinding(const void* a, const void* b)
     value = (int)(p_elem_a->spirv_id) - (int)(p_elem_b->spirv_id);
   }
   return value;
+}
+
+static SpvReflectResult ParseSpecializationConstants(
+  SpvReflectPrvParser*    p_parser,
+  SpvReflectShaderModule* p_module)
+{
+  p_module->specialization_constant_count = 0;
+  for (size_t i = 0; i < p_parser->node_count; ++i) {
+    SpvReflectPrvNode* p_node = &(p_parser->nodes[i]);
+    if (p_node->op != SpvOpSpecConstant) {
+      continue;
+    }
+    if (p_node->decorations.specid.value == INVALID_VALUE) {
+      continue;
+    }
+    p_module->specialization_constant_count += 1;
+  }
+
+  if (p_module->specialization_constant_count == 0) {
+    return SPV_REFLECT_RESULT_SUCCESS;
+  }
+
+  p_module->specialization_constants = (SpvReflectSpecializationConstant*)calloc(p_module->specialization_constant_count, sizeof(*(p_module->specialization_constants)));
+  if (IsNull(p_module->specialization_constants)) {
+    return SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED;
+  }
+
+  // Mark all types with an invalid state
+  for (uint32_t specialization_constant_index = 0; specialization_constant_index < p_module->specialization_constant_count; ++specialization_constant_index) {
+    SpvReflectSpecializationConstant* p_specialization_constant = &p_module->specialization_constants[specialization_constant_index];
+    p_specialization_constant->specid = (uint32_t)INVALID_VALUE;
+  }
+
+  uint32_t specialization_constant_index = 0;
+  for (size_t i = 0; i < p_parser->node_count; ++i) {
+    SpvReflectPrvNode* p_node = &(p_parser->nodes[i]);
+    if (p_node->op != SpvOpSpecConstant) {
+      continue;
+    }
+    if (p_node->decorations.specid.value == INVALID_VALUE) {
+      continue;
+    }
+
+    SpvReflectTypeDescription* p_type = FindType(p_module, p_node->result_type_id);
+    if (IsNull(p_type)) {
+      return SPV_REFLECT_RESULT_ERROR_SPIRV_INVALID_ID_REFERENCE;
+    }
+
+    SpvReflectSpecializationConstant* p_specialization_constant = &p_module->specialization_constants[specialization_constant_index];
+    p_specialization_constant->spirv_id = p_node->result_id;
+    p_specialization_constant->name = p_node->name;
+    p_specialization_constant->specid = p_node->decorations.specid.value;
+    p_specialization_constant->type_description = p_type;
+
+    p_specialization_constant->word_offset.specid = p_node->decorations.specid.word_offset;
+
+    ++specialization_constant_index;
+  }
+
+  return SPV_REFLECT_RESULT_SUCCESS;
 }
 
 static SpvReflectResult ParseDescriptorBindings(
@@ -3607,6 +3677,10 @@ SpvReflectResult spvReflectCreateShaderModule(
     SPV_REFLECT_ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
   }
   if (result == SPV_REFLECT_RESULT_SUCCESS) {
+    result = ParseSpecializationConstants(&parser, p_module);
+    SPV_REFLECT_ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
+  }
+  if (result == SPV_REFLECT_RESULT_SUCCESS) {
     result = ParseDescriptorBindings(&parser, p_module);
     SPV_REFLECT_ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
   }
@@ -4152,6 +4226,36 @@ SpvReflectResult spvReflectEnumerateEntryPointOutputVariables(
   }
   else {
     *p_count = p_entry->output_variable_count;
+  }
+
+  return SPV_REFLECT_RESULT_SUCCESS;
+}
+
+SpvReflectResult spvReflectEnumerateSpecializationConstants(
+  const SpvReflectShaderModule* p_module,
+  uint32_t*                     p_count,
+  SpvReflectSpecializationConstant** pp_consts
+)
+{
+  if (IsNull(p_module)) {
+    return SPV_REFLECT_RESULT_ERROR_NULL_POINTER;
+  }
+  if (IsNull(p_count)) {
+    return SPV_REFLECT_RESULT_ERROR_NULL_POINTER;
+  }
+
+  if (pp_consts != NULL) {
+    if (*p_count != p_module->specialization_constant_count) {
+      return SPV_REFLECT_RESULT_ERROR_COUNT_MISMATCH;
+    }
+
+    for (uint32_t index = 0; index < *p_count; ++index) {
+      SpvReflectSpecializationConstant* p_specialization_constants = (SpvReflectSpecializationConstant*)&p_module->specialization_constants[index];
+      pp_consts[index] = p_specialization_constants;
+    }
+  }
+  else {
+    *p_count = p_module->specialization_constant_count;
   }
 
   return SPV_REFLECT_RESULT_SUCCESS;
