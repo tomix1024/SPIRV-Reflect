@@ -1859,7 +1859,9 @@ static SpvReflectResult ParseSpecializationConstants(
   p_module->specialization_constant_count = 0;
   for (size_t i = 0; i < p_parser->node_count; ++i) {
     SpvReflectPrvNode* p_node = &(p_parser->nodes[i]);
-    if (p_node->op != SpvOpSpecConstant) {
+    if ((p_node->op != SpvOpSpecConstant) &&
+        (p_node->op != SpvOpSpecConstantTrue) &&
+        (p_node->op != SpvOpSpecConstantFalse)) {
       continue;
     }
     if (p_node->decorations.specid.value == INVALID_VALUE) {
@@ -1886,7 +1888,9 @@ static SpvReflectResult ParseSpecializationConstants(
   uint32_t specialization_constant_index = 0;
   for (size_t i = 0; i < p_parser->node_count; ++i) {
     SpvReflectPrvNode* p_node = &(p_parser->nodes[i]);
-    if (p_node->op != SpvOpSpecConstant) {
+    if ((p_node->op != SpvOpSpecConstant) &&
+        (p_node->op != SpvOpSpecConstantTrue) &&
+        (p_node->op != SpvOpSpecConstantFalse)) {
       continue;
     }
     if (p_node->decorations.specid.value == INVALID_VALUE) {
