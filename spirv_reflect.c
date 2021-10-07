@@ -2277,7 +2277,8 @@ static SpvReflectResult ParseDescriptorBlockVariable(
     }
   }
 
-  p_var->name = p_type->type_name;
+  // TODO this is wrong, the variable name is not the type name
+  // p_var->name = p_type->type_name;
   p_var->type_description = p_type;
   if (has_non_writable) {
     p_var->decoration_flags |= SPV_REFLECT_DECORATION_NON_WRITABLE;
@@ -3385,6 +3386,7 @@ static SpvReflectResult ParsePushConstantBlocks(
     if (result != SPV_REFLECT_RESULT_SUCCESS) {
       return result;
     }
+    p_push_constant->name = p_node->name;
 
     ++push_constant_index;
   }
